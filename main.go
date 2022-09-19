@@ -9,7 +9,7 @@ import (
 
 func main() {
 	hsrc := NewRandomAPISource("https://random-data-api.com/api/v2")
-	runner := source.NewSourceRunner(hsrc, os.Stdout)
+	runner := source.NewSafeSourceRunner(hsrc, os.Stdout, os.Args)
 	err := runner.Start()
 	if err != nil {
 		log.Fatal(err)

@@ -23,7 +23,7 @@ type RandomAPISource struct {
 	url string
 }
 
-type inputConfiguration struct {
+type sourceConfiguration struct {
 	Limit int `json:"limit"`
 }
 
@@ -35,6 +35,7 @@ func NewRandomAPISource(url string) RandomAPISource {
 // Spec returns the input "form" spec needed for your source
 func (s RandomAPISource) Spec(
 	messenger protocol.Messenger,
+	configParser protocol.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
 	return &protocol.ConnectorSpecification{
 		DocumentationURL:      "https://random-data-api.com/",
@@ -72,8 +73,8 @@ func (s RandomAPISource) Spec(
 
 // Check verifies the source - usually verify creds/connection etc.
 func (s RandomAPISource) Check(
-	srcCfgPath string,
 	messenger protocol.Messenger,
+	configParser protocol.ConfigParser,
 ) error {
 	err := messenger.WriteLog(protocol.LogLevelInfo, "checking random api source")
 	if err != nil {
@@ -101,17 +102,17 @@ func (s RandomAPISource) Check(
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	var ic inputConfiguration
-	err = protocol.UnmarshalFromPath(srcCfgPath, &ic)
+	var sc sourceConfiguration
+	err = configParser.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
 		return err
 	}
 
-	if ic.Limit < MinLimitAllowed {
+	if sc.Limit < MinLimitAllowed {
 		return fmt.Errorf("limit configuration value must be greater than or equal to %d", MinLimitAllowed)
 	}
 
-	if ic.Limit > MaxLimitAllowed {
+	if sc.Limit > MaxLimitAllowed {
 		return fmt.Errorf("limit configuration value must be less than or equal to %d", MaxLimitAllowed)
 	}
 
@@ -120,8 +121,8 @@ func (s RandomAPISource) Check(
 
 // Discover returns the schema of the data you want to sync
 func (s RandomAPISource) Discover(
-	srcConfigPath string,
 	messenger protocol.Messenger,
+	configParser protocol.ConfigParser,
 ) (*protocol.Catalog, error) {
 	return &protocol.Catalog{Streams: []protocol.Stream{
 		streams.GetBeersStream(),
@@ -137,18 +138,17 @@ func (s RandomAPISource) Discover(
 // returning an error from this will cancel the sync and returning a nil
 // from this will successfully end the sync
 func (s RandomAPISource) Read(
-	srcCfgPath string,
-	prevStatePath string,
 	configuredCat *protocol.ConfiguredCatalog,
 	messenger protocol.Messenger,
+	configParser protocol.ConfigParser,
 ) error {
 	err := messenger.WriteLog(protocol.LogLevelInfo, "running read")
 	if err != nil {
 		return err
 	}
 
-	var ic inputConfiguration
-	err = protocol.UnmarshalFromPath(srcCfgPath, &ic)
+	var sc sourceConfiguration
+	err = configParser.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func (s RandomAPISource) Read(
 		switch stream.Stream.Name {
 		case streams.AppliancesName:
 			var appliances []streams.Appliance
-			err = s.fetch(stream.Stream.Name, ic.Limit, &appliances)
+			err = s.fetch(stream.Stream.Name, sc.Limit, &appliances)
 			if err != nil {
 				return err
 			}
@@ -180,7 +180,7 @@ func (s RandomAPISource) Read(
 
 		case streams.BeersName:
 			var beers []streams.Beer
-			err = s.fetch(stream.Stream.Name, ic.Limit, &beers)
+			err = s.fetch(stream.Stream.Name, sc.Limit, &beers)
 			if err != nil {
 				return err
 			}
