@@ -1,6 +1,6 @@
 package streams
 
-import "github.com/theobitoproject/kankuro/protocol"
+import "github.com/theobitoproject/kankuro/pkg/protocol"
 
 // BeersName is the unique name and path for beers API
 const BeersName = "beers"

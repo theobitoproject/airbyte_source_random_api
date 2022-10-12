@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/theobitoproject/airbyte_source_random_api/streams"
-	"github.com/theobitoproject/kankuro/protocol"
+	"github.com/theobitoproject/kankuro/pkg/messenger"
+	"github.com/theobitoproject/kankuro/pkg/protocol"
 )
 
 // MaxLimitAllowed is the max amount of objects that can be fecthed from random API platform
@@ -34,8 +35,8 @@ func NewRandomAPISource(url string) RandomAPISource {
 
 // Spec returns the input "form" spec needed for your source
 func (s RandomAPISource) Spec(
-	messenger protocol.Messenger,
-	configParser protocol.ConfigParser,
+	msgr messenger.Messenger,
+	configParser messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
 	return &protocol.ConnectorSpecification{
 		DocumentationURL:      "https://random-data-api.com/",
@@ -73,10 +74,10 @@ func (s RandomAPISource) Spec(
 
 // Check verifies the source - usually verify creds/connection etc.
 func (s RandomAPISource) Check(
-	messenger protocol.Messenger,
-	configParser protocol.ConfigParser,
+	msgr messenger.Messenger,
+	configParser messenger.ConfigParser,
 ) error {
-	err := messenger.WriteLog(protocol.LogLevelInfo, "checking random api source")
+	err := msgr.WriteLog(protocol.LogLevelInfo, "checking random api source")
 	if err != nil {
 		return err
 	}
@@ -121,8 +122,8 @@ func (s RandomAPISource) Check(
 
 // Discover returns the schema of the data you want to sync
 func (s RandomAPISource) Discover(
-	messenger protocol.Messenger,
-	configParser protocol.ConfigParser,
+	msgr messenger.Messenger,
+	configParser messenger.ConfigParser,
 ) (*protocol.Catalog, error) {
 	return &protocol.Catalog{Streams: []protocol.Stream{
 		streams.GetBeersStream(),
@@ -139,10 +140,10 @@ func (s RandomAPISource) Discover(
 // from this will successfully end the sync
 func (s RandomAPISource) Read(
 	configuredCat *protocol.ConfiguredCatalog,
-	messenger protocol.Messenger,
-	configParser protocol.ConfigParser,
+	msgr messenger.Messenger,
+	configParser messenger.ConfigParser,
 ) error {
-	err := messenger.WriteLog(protocol.LogLevelInfo, "running read")
+	err := msgr.WriteLog(protocol.LogLevelInfo, "running read")
 	if err != nil {
 		return err
 	}
@@ -157,7 +158,16 @@ func (s RandomAPISource) Read(
 		rec interface{},
 		stream protocol.ConfiguredStream,
 	) error {
-		return messenger.WriteRecord(rec, stream.Stream.Name, stream.Stream.Namespace)
+		var recData protocol.RecordData
+
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+
+		json.Unmarshal(data, &recData)
+
+		return msgr.WriteRecord(&recData, stream.Stream.Name, stream.Stream.Namespace)
 	}
 
 	// TODO: use goroutines to fetch and record faster for every stream

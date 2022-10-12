@@ -1,6 +1,6 @@
 package streams
 
-import "github.com/theobitoproject/kankuro/protocol"
+import "github.com/theobitoproject/kankuro/pkg/protocol"
 
 // AppliancesName is the unique name and path for appliances API
 const AppliancesName = "appliances"

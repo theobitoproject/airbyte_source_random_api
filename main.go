@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/theobitoproject/kankuro/source"
+	"github.com/theobitoproject/kankuro/pkg/source"
 )
 
 func main() {
