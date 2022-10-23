@@ -29,14 +29,14 @@ type sourceConfiguration struct {
 }
 
 // NewRandomAPISource creates a new instance of RandomAPISource
-func NewRandomAPISource(url string) RandomAPISource {
-	return RandomAPISource{url}
+func NewRandomAPISource(url string) *RandomAPISource {
+	return &RandomAPISource{url}
 }
 
-// Spec returns the input "form" spec needed for your source
-func (s RandomAPISource) Spec(
+// Spec returns the schema which described how the source connector can be configured
+func (s *RandomAPISource) Spec(
 	msgr messenger.Messenger,
-	configParser messenger.ConfigParser,
+	cfgPsr messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
 	return &protocol.ConnectorSpecification{
 		DocumentationURL:      "https://random-data-api.com/",
@@ -72,10 +72,10 @@ func (s RandomAPISource) Spec(
 	}, nil
 }
 
-// Check verifies the source - usually verify creds/connection etc.
-func (s RandomAPISource) Check(
+// Check verifies that, given a configuration, data can be accessed properly
+func (s *RandomAPISource) Check(
 	msgr messenger.Messenger,
-	configParser messenger.ConfigParser,
+	cfgPsr messenger.ConfigParser,
 ) error {
 	err := msgr.WriteLog(protocol.LogLevelInfo, "checking random api source")
 	if err != nil {
@@ -104,7 +104,7 @@ func (s RandomAPISource) Check(
 	}
 
 	var sc sourceConfiguration
-	err = configParser.UnmarshalSourceConfigPath(&sc)
+	err = cfgPsr.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
 		return err
 	}
@@ -120,10 +120,11 @@ func (s RandomAPISource) Check(
 	return nil
 }
 
-// Discover returns the schema of the data you want to sync
-func (s RandomAPISource) Discover(
+// Discover returns the schema which describes the structure of the data
+// that can be extracted from the source
+func (s *RandomAPISource) Discover(
 	msgr messenger.Messenger,
-	configParser messenger.ConfigParser,
+	cfgPsr messenger.ConfigParser,
 ) (*protocol.Catalog, error) {
 	return &protocol.Catalog{Streams: []protocol.Stream{
 		streams.GetBeersStream(),
@@ -131,86 +132,142 @@ func (s RandomAPISource) Discover(
 	}}, nil
 }
 
-// Read will read the actual data from your source and use
-// tracker.Record(), tracker.State() and tracker.Log() to sync data
-// with airbyte/destinations
-// MessageTracker is thread-safe and so it is completely find to
-// spin off goroutines to sync your data (just don't forget your waitgroups :))
-// returning an error from this will cancel the sync and returning a nil
-// from this will successfully end the sync
-func (s RandomAPISource) Read(
-	configuredCat *protocol.ConfiguredCatalog,
+// Read fetches data from the source and
+// communicates all records to the record channel
+// Note: To stop execution, do not use Close method inside the implementation
+// Instead, send a value to the done channel (doneChannel <- true)
+func (s *RandomAPISource) Read(
+	cfgdCtg *protocol.ConfiguredCatalog,
 	msgr messenger.Messenger,
-	configParser messenger.ConfigParser,
-) error {
+	cfgPsr messenger.ConfigParser,
+	chanHub messenger.ChannelHub,
+) {
 	err := msgr.WriteLog(protocol.LogLevelInfo, "running read")
 	if err != nil {
-		return err
+		chanHub.GetErrorChannel() <- err
 	}
 
 	var sc sourceConfiguration
-	err = configParser.UnmarshalSourceConfigPath(&sc)
+	err = cfgPsr.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
-		return err
+		chanHub.GetErrorChannel() <- err
+		return
 	}
 
-	record := func(
-		rec interface{},
-		stream protocol.ConfiguredStream,
-	) error {
-		var recData protocol.RecordData
+	doneStreamChannel := make(chan bool)
 
-		data, err := json.Marshal(rec)
-		if err != nil {
-			return err
+	go func() {
+		for i := 0; i < len(cfgdCtg.Streams); i++ {
+			<-doneStreamChannel
 		}
+		chanHub.GetDoneChannel() <- true
+	}()
 
-		json.Unmarshal(data, &recData)
-
-		return msgr.WriteRecord(&recData, stream.Stream.Name, stream.Stream.Namespace)
-	}
-
-	// TODO: use goroutines to fetch and record faster for every stream
-	// for loop is not very efficient
-	for _, stream := range configuredCat.Streams {
+	for _, stream := range cfgdCtg.Streams {
 
 		switch stream.Stream.Name {
 		case streams.AppliancesName:
-			var appliances []streams.Appliance
-			err = s.fetch(stream.Stream.Name, sc.Limit, &appliances)
-			if err != nil {
-				return err
-			}
-			for _, appliance := range appliances {
-				err = record(appliance, stream)
-				if err != nil {
-					return err
-				}
-			}
+			go s.fetchAppliances(stream, sc.Limit, chanHub, doneStreamChannel)
 
 		case streams.BeersName:
-			var beers []streams.Beer
-			err = s.fetch(stream.Stream.Name, sc.Limit, &beers)
-			if err != nil {
-				return err
-			}
-			for _, beer := range beers {
-				err = record(beer, stream)
-				if err != nil {
-					return err
-				}
-			}
+			go s.fetchBeers(stream, sc.Limit, chanHub, doneStreamChannel)
 
 		default:
-			return fmt.Errorf("stream not supported: %s", stream.Stream.Name)
+			chanHub.GetErrorChannel() <- fmt.Errorf("stream not supported: %s", stream.Stream.Name)
+			return
 		}
 	}
+}
+
+// Close performs any final actions to close and finish the process.
+// Note: Do not use this method inside the implementation to stop any execution.
+// Instead, send a value to the done channel (doneChannel <- true)
+func (s *RandomAPISource) Close(
+	chanHub messenger.ChannelHub,
+) error {
+	close(chanHub.GetRecordChannel())
+	close(chanHub.GetErrorChannel())
+	close(chanHub.GetDoneChannel())
 
 	return nil
 }
 
-func (s RandomAPISource) fetch(streamName string, limit int, decode interface{}) error {
-	uri := fmt.Sprintf("%s/%s?size=%d", s.url, streamName, limit)
+func (s *RandomAPISource) fetchAppliances(
+	stream protocol.ConfiguredStream,
+	limit int,
+	chanHub messenger.ChannelHub,
+	doneStreamChannel chan bool,
+) {
+	var appliances []streams.Appliance
+	err := s.fetchDataForStream(
+		stream,
+		limit,
+		&appliances,
+	)
+	if err != nil {
+		chanHub.GetErrorChannel() <- err
+		return
+	}
+
+	for _, appliance := range appliances {
+		select {
+		case <-chanHub.GetDoneChannel():
+			return
+		default:
+			rec, err := marshalRecord(stream, appliance)
+			if err != nil {
+				chanHub.GetErrorChannel() <- err
+				return
+			}
+
+			chanHub.GetRecordChannel() <- rec
+		}
+	}
+
+	doneStreamChannel <- true
+}
+
+func (s *RandomAPISource) fetchBeers(
+	stream protocol.ConfiguredStream,
+	limit int,
+	chanHub messenger.ChannelHub,
+	doneStreamChannel chan bool,
+) {
+	var beers []streams.Beer
+	err := s.fetchDataForStream(
+		stream,
+		limit,
+		&beers,
+	)
+	if err != nil {
+		chanHub.GetErrorChannel() <- err
+		return
+	}
+
+	for _, beer := range beers {
+		select {
+		case <-chanHub.GetDoneChannel():
+			return
+		default:
+			rec, err := marshalRecord(stream, beer)
+			if err != nil {
+				chanHub.GetErrorChannel() <- err
+				return
+			}
+
+			chanHub.GetRecordChannel() <- rec
+		}
+	}
+
+	doneStreamChannel <- true
+}
+
+func (s *RandomAPISource) fetchDataForStream(
+	stream protocol.ConfiguredStream,
+	limit int,
+	records interface{},
+) error {
+	uri := fmt.Sprintf("%s/%s?size=%d", s.url, stream.Stream.Name, limit)
 
 	resp, err := http.Get(uri)
 	if err != nil {
@@ -220,5 +277,28 @@ func (s RandomAPISource) fetch(streamName string, limit int, decode interface{})
 
 	// TODO: check status code
 
-	return json.NewDecoder(resp.Body).Decode(decode)
+	return json.NewDecoder(resp.Body).Decode(records)
+}
+
+func marshalRecord(
+	stream protocol.ConfiguredStream,
+	rec interface{},
+) (*protocol.Record, error) {
+	var recData *protocol.RecordData
+
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(data, &recData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &protocol.Record{
+		Namespace: stream.Stream.Namespace,
+		Data:      recData,
+		Stream:    stream.Stream.Name,
+	}, nil
 }

@@ -1,5 +1,5 @@
 module github.com/theobitoproject/airbyte_source_random_api
 
-go 1.17
+go 1.19
 
-require github.com/theobitoproject/kankuro v1.11.1
+require github.com/theobitoproject/kankuro v1.16.0
