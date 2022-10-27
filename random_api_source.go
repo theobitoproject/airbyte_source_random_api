@@ -35,8 +35,8 @@ func NewRandomAPISource(url string) *RandomAPISource {
 
 // Spec returns the schema which described how the source connector can be configured
 func (s *RandomAPISource) Spec(
-	msgr messenger.Messenger,
-	cfgPsr messenger.ConfigParser,
+	mw messenger.MessageWriter,
+	cp messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
 	return &protocol.ConnectorSpecification{
 		DocumentationURL:      "https://random-data-api.com/",
@@ -74,10 +74,10 @@ func (s *RandomAPISource) Spec(
 
 // Check verifies that, given a configuration, data can be accessed properly
 func (s *RandomAPISource) Check(
-	msgr messenger.Messenger,
-	cfgPsr messenger.ConfigParser,
+	mw messenger.MessageWriter,
+	cp messenger.ConfigParser,
 ) error {
-	err := msgr.WriteLog(protocol.LogLevelInfo, "checking random api source")
+	err := mw.WriteLog(protocol.LogLevelInfo, "checking random api source")
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (s *RandomAPISource) Check(
 	}
 
 	var sc sourceConfiguration
-	err = cfgPsr.UnmarshalSourceConfigPath(&sc)
+	err = cp.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
 		return err
 	}
@@ -123,8 +123,8 @@ func (s *RandomAPISource) Check(
 // Discover returns the schema which describes the structure of the data
 // that can be extracted from the source
 func (s *RandomAPISource) Discover(
-	msgr messenger.Messenger,
-	cfgPsr messenger.ConfigParser,
+	mw messenger.MessageWriter,
+	cp messenger.ConfigParser,
 ) (*protocol.Catalog, error) {
 	return &protocol.Catalog{Streams: []protocol.Stream{
 		streams.GetBeersStream(),
@@ -137,65 +137,56 @@ func (s *RandomAPISource) Discover(
 // Note: To stop execution, do not use Close method inside the implementation
 // Instead, send a value to the done channel (doneChannel <- true)
 func (s *RandomAPISource) Read(
-	cfgdCtg *protocol.ConfiguredCatalog,
-	msgr messenger.Messenger,
-	cfgPsr messenger.ConfigParser,
-	chanHub messenger.ChannelHub,
+	cc *protocol.ConfiguredCatalog,
+	mw messenger.MessageWriter,
+	cp messenger.ConfigParser,
+	hub messenger.ChannelHub,
 ) {
-	err := msgr.WriteLog(protocol.LogLevelInfo, "running read")
+	err := mw.WriteLog(protocol.LogLevelInfo, "running read")
 	if err != nil {
-		chanHub.GetErrorChannel() <- err
+		hub.GetErrorChannel() <- err
 	}
 
 	var sc sourceConfiguration
-	err = cfgPsr.UnmarshalSourceConfigPath(&sc)
+	err = cp.UnmarshalSourceConfigPath(&sc)
 	if err != nil {
-		chanHub.GetErrorChannel() <- err
+		hub.GetErrorChannel() <- err
 		return
 	}
 
 	doneStreamChannel := make(chan bool)
 
 	go func() {
-		for i := 0; i < len(cfgdCtg.Streams); i++ {
+		for i := 0; i < len(cc.Streams); i++ {
 			<-doneStreamChannel
 		}
-		chanHub.GetDoneChannel() <- true
+
+		hub.GetClosingChannel() <- true
+
+		close(hub.GetRecordChannel())
+		close(hub.GetErrorChannel())
+		close(hub.GetClosingChannel())
 	}()
 
-	for _, stream := range cfgdCtg.Streams {
+	for _, stream := range cc.Streams {
 
 		switch stream.Stream.Name {
 		case streams.AppliancesName:
-			go s.fetchAppliances(stream, sc.Limit, chanHub, doneStreamChannel)
+			go s.fetchAppliances(stream, sc.Limit, hub, doneStreamChannel)
 
 		case streams.BeersName:
-			go s.fetchBeers(stream, sc.Limit, chanHub, doneStreamChannel)
+			go s.fetchBeers(stream, sc.Limit, hub, doneStreamChannel)
 
 		default:
-			chanHub.GetErrorChannel() <- fmt.Errorf("stream not supported: %s", stream.Stream.Name)
-			return
+			hub.GetErrorChannel() <- fmt.Errorf("stream not supported: %s", stream.Stream.Name)
 		}
 	}
-}
-
-// Close performs any final actions to close and finish the process.
-// Note: Do not use this method inside the implementation to stop any execution.
-// Instead, send a value to the done channel (doneChannel <- true)
-func (s *RandomAPISource) Close(
-	chanHub messenger.ChannelHub,
-) error {
-	close(chanHub.GetRecordChannel())
-	close(chanHub.GetErrorChannel())
-	close(chanHub.GetDoneChannel())
-
-	return nil
 }
 
 func (s *RandomAPISource) fetchAppliances(
 	stream protocol.ConfiguredStream,
 	limit int,
-	chanHub messenger.ChannelHub,
+	hub messenger.ChannelHub,
 	doneStreamChannel chan bool,
 ) {
 	var appliances []streams.Appliance
@@ -205,22 +196,25 @@ func (s *RandomAPISource) fetchAppliances(
 		&appliances,
 	)
 	if err != nil {
-		chanHub.GetErrorChannel() <- err
+		hub.GetErrorChannel() <- err
+		doneStreamChannel <- true
 		return
 	}
 
 	for _, appliance := range appliances {
 		select {
-		case <-chanHub.GetDoneChannel():
+		case <-hub.GetClosingChannel():
+			doneStreamChannel <- true
 			return
 		default:
 			rec, err := marshalRecord(stream, appliance)
 			if err != nil {
-				chanHub.GetErrorChannel() <- err
+				hub.GetErrorChannel() <- err
+				doneStreamChannel <- true
 				return
 			}
 
-			chanHub.GetRecordChannel() <- rec
+			hub.GetRecordChannel() <- rec
 		}
 	}
 
@@ -230,7 +224,7 @@ func (s *RandomAPISource) fetchAppliances(
 func (s *RandomAPISource) fetchBeers(
 	stream protocol.ConfiguredStream,
 	limit int,
-	chanHub messenger.ChannelHub,
+	hub messenger.ChannelHub,
 	doneStreamChannel chan bool,
 ) {
 	var beers []streams.Beer
@@ -240,22 +234,25 @@ func (s *RandomAPISource) fetchBeers(
 		&beers,
 	)
 	if err != nil {
-		chanHub.GetErrorChannel() <- err
+		hub.GetErrorChannel() <- err
+		doneStreamChannel <- true
 		return
 	}
 
 	for _, beer := range beers {
 		select {
-		case <-chanHub.GetDoneChannel():
+		case <-hub.GetClosingChannel():
+			doneStreamChannel <- true
 			return
 		default:
 			rec, err := marshalRecord(stream, beer)
 			if err != nil {
-				chanHub.GetErrorChannel() <- err
+				hub.GetErrorChannel() <- err
+				doneStreamChannel <- true
 				return
 			}
 
-			chanHub.GetRecordChannel() <- rec
+			hub.GetRecordChannel() <- rec
 		}
 	}
 
