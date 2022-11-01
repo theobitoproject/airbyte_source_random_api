@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	hsrc := NewRandomAPISource("https://random-data-api.com/api/v2")
+	hsrc := newRandomAPISource("https://random-data-api.com/api/v2")
 	runner := source.NewSafeSourceRunner(hsrc, os.Stdout, os.Args)
 	err := runner.Start()
 	if err != nil {

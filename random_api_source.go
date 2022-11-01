@@ -10,16 +10,12 @@ import (
 	"github.com/theobitoproject/kankuro/pkg/protocol"
 )
 
-// MaxLimitAllowed is the max amount of objects that can be fecthed from random API platform
 const (
-	MinLimitAllowed = 2
-	MaxLimitAllowed = 100
+	minLimitAllowed = 2
+	maxLimitAllowed = 100
 )
 
-// RandomAPISource defines the source from which data will come
-// from random api platform
-// See: https://random-data-api.com/
-type RandomAPISource struct {
+type randomAPISource struct {
 	url string
 }
 
@@ -27,13 +23,12 @@ type sourceConfiguration struct {
 	Limit int `json:"limit"`
 }
 
-// NewRandomAPISource creates a new instance of RandomAPISource
-func NewRandomAPISource(url string) *RandomAPISource {
-	return &RandomAPISource{url}
+func newRandomAPISource(url string) *randomAPISource {
+	return &randomAPISource{url}
 }
 
 // Spec returns the schema which described how the source connector can be configured
-func (s *RandomAPISource) Spec(
+func (s *randomAPISource) Spec(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
@@ -53,8 +48,8 @@ func (s *RandomAPISource) Spec(
 					"limit": {
 						Description: fmt.Sprintf(
 							"max number of element to pull per instance. Allowed values between %d and %d",
-							MinLimitAllowed,
-							MaxLimitAllowed,
+							minLimitAllowed,
+							maxLimitAllowed,
 						),
 						PropertyType: protocol.PropertyType{
 							Type: []protocol.PropType{
@@ -69,7 +64,7 @@ func (s *RandomAPISource) Spec(
 }
 
 // Check verifies that, given a configuration, data can be accessed properly
-func (s *RandomAPISource) Check(
+func (s *randomAPISource) Check(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) error {
@@ -105,12 +100,18 @@ func (s *RandomAPISource) Check(
 		return err
 	}
 
-	if sc.Limit < MinLimitAllowed {
-		return fmt.Errorf("limit configuration value must be greater than or equal to %d", MinLimitAllowed)
+	if sc.Limit < minLimitAllowed {
+		return fmt.Errorf(
+			"limit configuration value must be greater than or equal to %d",
+			minLimitAllowed,
+		)
 	}
 
-	if sc.Limit > MaxLimitAllowed {
-		return fmt.Errorf("limit configuration value must be less than or equal to %d", MaxLimitAllowed)
+	if sc.Limit > maxLimitAllowed {
+		return fmt.Errorf(
+			"limit configuration value must be less than or equal to %d",
+			maxLimitAllowed,
+		)
 	}
 
 	return nil
@@ -118,7 +119,7 @@ func (s *RandomAPISource) Check(
 
 // Discover returns the schema which describes the structure of the data
 // that can be extracted from the source
-func (s *RandomAPISource) Discover(
+func (s *randomAPISource) Discover(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) (*protocol.Catalog, error) {
@@ -132,7 +133,7 @@ func (s *RandomAPISource) Discover(
 // communicates all records to the record channel
 // Note: To stop execution, do not use Close method inside the implementation
 // Instead, send a value to the done channel (doneChannel <- true)
-func (s *RandomAPISource) Read(
+func (s *randomAPISource) Read(
 	cc *protocol.ConfiguredCatalog,
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
