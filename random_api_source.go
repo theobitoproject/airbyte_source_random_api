@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -39,11 +38,8 @@ func (s *RandomAPISource) Spec(
 	cp messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
 	return &protocol.ConnectorSpecification{
-		DocumentationURL:      "https://random-data-api.com/",
-		ChangeLogURL:          "https://random-data-api.com/",
-		SupportsIncremental:   false,
-		SupportsNormalization: true,
-		SupportsDBT:           true,
+		DocumentationURL: "https://random-data-api.com/",
+		ChangeLogURL:     "https://random-data-api.com/",
 		SupportedDestinationSyncModes: []protocol.DestinationSyncMode{
 			protocol.DestinationSyncModeOverwrite,
 		},
@@ -154,148 +150,28 @@ func (s *RandomAPISource) Read(
 		return
 	}
 
-	doneStreamChannel := make(chan bool)
+	configuredStreamChan := make(chan protocol.ConfiguredStream)
+	workersDoneChan := make(chan bool)
 
-	go func() {
-		for i := 0; i < len(cc.Streams); i++ {
-			<-doneStreamChannel
-		}
-
-		hub.GetClosingChannel() <- true
-
-		close(hub.GetRecordChannel())
-		close(hub.GetErrorChannel())
-		close(hub.GetClosingChannel())
-	}()
+	streamExtractor := newStreamExtractor(
+		configuredStreamChan,
+		hub,
+		sc.Limit,
+		s.url,
+		workersDoneChan,
+	)
 
 	for _, stream := range cc.Streams {
-
-		switch stream.Stream.Name {
-		case streams.AppliancesName:
-			go s.fetchAppliances(stream, sc.Limit, hub, doneStreamChannel)
-
-		case streams.BeersName:
-			go s.fetchBeers(stream, sc.Limit, hub, doneStreamChannel)
-
-		default:
-			hub.GetErrorChannel() <- fmt.Errorf("stream not supported: %s", stream.Stream.Name)
-		}
-	}
-}
-
-func (s *RandomAPISource) fetchAppliances(
-	stream protocol.ConfiguredStream,
-	limit int,
-	hub messenger.ChannelHub,
-	doneStreamChannel chan bool,
-) {
-	var appliances []streams.Appliance
-	err := s.fetchDataForStream(
-		stream,
-		limit,
-		&appliances,
-	)
-	if err != nil {
-		hub.GetErrorChannel() <- err
-		doneStreamChannel <- true
-		return
+		streamExtractor.addWorker(stream)
 	}
 
-	for _, appliance := range appliances {
-		select {
-		case <-hub.GetClosingChannel():
-			doneStreamChannel <- true
-			return
-		default:
-			rec, err := marshalRecord(stream, appliance)
-			if err != nil {
-				hub.GetErrorChannel() <- err
-				doneStreamChannel <- true
-				return
-			}
-
-			hub.GetRecordChannel() <- rec
-		}
+	for i := 0; i < len(cc.Streams); i++ {
+		<-workersDoneChan
 	}
 
-	doneStreamChannel <- true
-}
+	close(workersDoneChan)
+	close(configuredStreamChan)
 
-func (s *RandomAPISource) fetchBeers(
-	stream protocol.ConfiguredStream,
-	limit int,
-	hub messenger.ChannelHub,
-	doneStreamChannel chan bool,
-) {
-	var beers []streams.Beer
-	err := s.fetchDataForStream(
-		stream,
-		limit,
-		&beers,
-	)
-	if err != nil {
-		hub.GetErrorChannel() <- err
-		doneStreamChannel <- true
-		return
-	}
-
-	for _, beer := range beers {
-		select {
-		case <-hub.GetClosingChannel():
-			doneStreamChannel <- true
-			return
-		default:
-			rec, err := marshalRecord(stream, beer)
-			if err != nil {
-				hub.GetErrorChannel() <- err
-				doneStreamChannel <- true
-				return
-			}
-
-			hub.GetRecordChannel() <- rec
-		}
-	}
-
-	doneStreamChannel <- true
-}
-
-func (s *RandomAPISource) fetchDataForStream(
-	stream protocol.ConfiguredStream,
-	limit int,
-	records interface{},
-) error {
-	uri := fmt.Sprintf("%s/%s?size=%d", s.url, stream.Stream.Name, limit)
-
-	resp, err := http.Get(uri)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// TODO: check status code
-
-	return json.NewDecoder(resp.Body).Decode(records)
-}
-
-func marshalRecord(
-	stream protocol.ConfiguredStream,
-	rec interface{},
-) (*protocol.Record, error) {
-	var recData *protocol.RecordData
-
-	data, err := json.Marshal(rec)
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal(data, &recData)
-	if err != nil {
-		return nil, err
-	}
-
-	return &protocol.Record{
-		Namespace: stream.Stream.Namespace,
-		Data:      recData,
-		Stream:    stream.Stream.Name,
-	}, nil
+	close(hub.GetRecordChannel())
+	close(hub.GetErrorChannel())
 }
