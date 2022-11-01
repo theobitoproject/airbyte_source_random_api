@@ -5,21 +5,6 @@ import "github.com/theobitoproject/kankuro/pkg/protocol"
 // BeersName is the unique name and path for beers API
 const BeersName = "beers"
 
-// Beer defines all attributes that represents it
-type Beer struct {
-	Id      int    `json:"id"`
-	Uid     string `json:"uid"`
-	Name    string `json:"name"`
-	Brand   string `json:"brand"`
-	Style   string `json:"style"`
-	Hop     string `json:"hop"`
-	Yeast   string `json:"yeast"`
-	Malts   string `json:"malts"`
-	Ibu     string `json:"ibu"`
-	Alcohol string `json:"alcohol"`
-	Blg     string `json:"blg"`
-}
-
 // GetBeersStream returns the stream for the beers API
 func GetBeersStream() protocol.Stream {
 	return protocol.Stream{

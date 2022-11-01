@@ -5,14 +5,6 @@ import "github.com/theobitoproject/kankuro/pkg/protocol"
 // AppliancesName is the unique name and path for appliances API
 const AppliancesName = "appliances"
 
-// Appliance defines all attributes that represents it
-type Appliance struct {
-	Id        int    `json:"id"`
-	Uid       string `json:"uid"`
-	Brand     string `json:"brand"`
-	Equipment string `json:"equipment"`
-}
-
 // GetAppliancesStream returns the stream for the appliances API
 func GetAppliancesStream() protocol.Stream {
 	return protocol.Stream{
