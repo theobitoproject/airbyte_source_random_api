@@ -15,7 +15,7 @@ const (
 	maxLimitAllowed = 100
 )
 
-type randomAPISource struct {
+type sourceRandomApi struct {
 	url string
 }
 
@@ -23,12 +23,12 @@ type sourceConfiguration struct {
 	Limit int `json:"limit"`
 }
 
-func newRandomAPISource(url string) *randomAPISource {
-	return &randomAPISource{url}
+func newSourceRandomApi(url string) *sourceRandomApi {
+	return &sourceRandomApi{url}
 }
 
 // Spec returns the schema which described how the source connector can be configured
-func (s *randomAPISource) Spec(
+func (s *sourceRandomApi) Spec(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) (*protocol.ConnectorSpecification, error) {
@@ -40,14 +40,14 @@ func (s *randomAPISource) Spec(
 		},
 		ConnectionSpecification: protocol.ConnectionSpecification{
 			Title:       "Random Data API",
-			Description: "Random Data Source API",
+			Description: "This source extracts data from Random Data Generator",
 			Type:        "object",
 			Required:    []protocol.PropertyName{"limit"},
 			Properties: protocol.Properties{
 				Properties: map[protocol.PropertyName]protocol.PropertySpec{
 					"limit": {
 						Description: fmt.Sprintf(
-							"max number of element to pull per instance. Allowed values between %d and %d",
+							"Max number of element to pull per instance. Allowed values between %d and %d",
 							minLimitAllowed,
 							maxLimitAllowed,
 						),
@@ -64,7 +64,7 @@ func (s *randomAPISource) Spec(
 }
 
 // Check verifies that, given a configuration, data can be accessed properly
-func (s *randomAPISource) Check(
+func (s *sourceRandomApi) Check(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) error {
@@ -119,7 +119,7 @@ func (s *randomAPISource) Check(
 
 // Discover returns the schema which describes the structure of the data
 // that can be extracted from the source
-func (s *randomAPISource) Discover(
+func (s *sourceRandomApi) Discover(
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
 ) (*protocol.Catalog, error) {
@@ -133,7 +133,7 @@ func (s *randomAPISource) Discover(
 // communicates all records to the record channel
 // Note: To stop execution, do not use Close method inside the implementation
 // Instead, send a value to the done channel (doneChannel <- true)
-func (s *randomAPISource) Read(
+func (s *sourceRandomApi) Read(
 	cc *protocol.ConfiguredCatalog,
 	mw messenger.MessageWriter,
 	cp messenger.ConfigParser,
