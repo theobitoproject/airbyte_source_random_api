@@ -58,21 +58,9 @@ func (se *streamExtractor) sendRecords(
 	rcds []*protocol.RecordData,
 ) error {
 	for _, rcd := range rcds {
-		var recData *protocol.RecordData
-
-		data, err := json.Marshal(rcd)
-		if err != nil {
-			return err
-		}
-
-		err = json.Unmarshal(data, &recData)
-		if err != nil {
-			return err
-		}
-
 		rec := &protocol.Record{
 			Namespace: configuredStream.Stream.Namespace,
-			Data:      recData,
+			Data:      rcd,
 			Stream:    configuredStream.Stream.Name,
 		}
 
